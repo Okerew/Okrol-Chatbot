@@ -13,8 +13,14 @@ How to add data
 -------------------
 This is a blueprint for example data
 ```
-{
+[
+  {
+    "text": "Who is your creator?",
+    "response": "Okerew is my creator"
+  },
+  {
     "text": "Hey, hey",
-    "response": "hello, hello"
-}
+    "response": "Hello"
+  }
+]
 ```
