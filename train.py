@@ -21,18 +21,31 @@ def load_data(folder_path):
     for file_name in os.listdir(folder_path):
         with open(os.path.join(folder_path, file_name), 'r') as f:
             file_contents = json.load(f)
-            data.append(file_contents['text'])
-            labels.append(file_contents['response'])
-
-            # Add words from both 'text' and 'response' fields to the vocabulary
-            for word in nlp(file_contents['text'].lower()):
-                if word.text not in vocab:
-                    vocab[word.text] = next_index
-                    next_index += 1
-            for word in nlp(file_contents['response'].lower()):
-                if word.text not in vocab:
-                    vocab[word.text] = next_index
-                    next_index += 1
+            if isinstance(file_contents, list):
+                for entry in file_contents:
+                    data.append(entry['text'])
+                    labels.append(entry['response'])
+                    # Add words from both 'text' and 'response' fields to the vocabulary
+                    for word in nlp(entry['text'].lower()):
+                        if word.text not in vocab:
+                            vocab[word.text] = next_index
+                            next_index += 1
+                    for word in nlp(entry['response'].lower()):
+                        if word.text not in vocab:
+                            vocab[word.text] = next_index
+                            next_index += 1
+            else:
+                data.append(file_contents['text'])
+                labels.append(file_contents['response'])
+                # Add words from both 'text' and 'response' fields to the vocabulary
+                for word in nlp(file_contents['text'].lower()):
+                    if word.text not in vocab:
+                        vocab[word.text] = next_index
+                        next_index += 1
+                for word in nlp(file_contents['response'].lower()):
+                    if word.text not in vocab:
+                        vocab[word.text] = next_index
+                        next_index += 1
 
     return data, labels, vocab
 
