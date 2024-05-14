@@ -2,8 +2,8 @@ import os
 import torch
 import spacy
 import json
-from train import padded_input_sequences
 import re
+from train import padded_input_sequences
 
 # Load the chatbot and vocabulary
 chatbot = torch.load('model/chatbot.pt')
@@ -26,9 +26,10 @@ def evaluate_expression(expression):
     except Exception as e:
         return None
 
-
 # Function to interact with the chatbot
 def interact_with_chatbot(chatbot, vocab):
+    interactions = []
+
     while True:
         print("Type ?help for a list of available commands.")
         user_input = input("Input your text: ")
@@ -49,7 +50,6 @@ def interact_with_chatbot(chatbot, vocab):
             result = evaluate_expression(operation.group())
         else:
             result = ''
-
 
         # Lowercase and trim user input
         user_input = user_input.lower().strip()
@@ -95,7 +95,21 @@ def interact_with_chatbot(chatbot, vocab):
                 break
             predicted_response.append(list(vocab.keys())[list(vocab.values()).index(i)])
 
+        # Record interaction
+        interaction = {
+            "text": user_input,
+            "response": ' '.join(predicted_response),
+        }
+        interactions.append(interaction)
+
         print("Chatbot's response:", ' '.join(predicted_response), result)
 
-# Interact with the chatbot
+    # Save interactions to a JSON file
+    interaction_file = 'user_interaction.json'
+    with open(f'training_data/{interaction_file}', 'w') as f:
+        json.dump(interactions, f)
+
+    print("Interactions saved to:", interaction_file)
+
+# Interact with the chatbot and save interactions to a JSON file
 interact_with_chatbot(chatbot, vocab)
