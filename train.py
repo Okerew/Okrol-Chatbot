@@ -8,6 +8,10 @@ import random
 
 nlp = spacy.load('en_core_web_sm')
 # Function to load data from JSON files
+"""
+Loads data from JSON files in the specified folder_path, extracts text and response labels,
+builds a vocabulary with unique words from text and response fields, and returns the processed data, labels, and vocabulary.
+"""
 def load_data(folder_path):
     data = []
     labels = []
@@ -59,6 +63,16 @@ def tokenize_data(data):
         tokenized_data.append(tokens)
     return tokenized_data
 
+"""
+    Convert tokenized data to sequences of integers based on a given vocabulary.
+
+    Parameters:
+    - tokenized_data (list): List of tokenized texts to convert.
+    - vocab (dict): Vocabulary dictionary mapping words to integers.
+
+    Returns:
+    - sequences (list): List of sequences of integers corresponding to the tokenized data.
+"""
 def convert_to_sequences(tokenized_data, vocab):
     sequences = []
     for text in tokenized_data:
@@ -122,6 +136,17 @@ class DecoderRNN(nn.Module):
 
 
 # Define the chatbot
+"""
+        Forward pass of the ChatBot model.
+
+        Parameters:
+            input_sequence (torch.Tensor): The input sequence to the model.
+            target_sequence (torch.Tensor, optional): The target sequence for training. Defaults to None.
+            teacher_forcing_ratio (float, optional): The probability of using teacher forcing. Defaults to 0.5.
+
+        Returns:
+            torch.Tensor: The outputs of the model.
+"""
 class ChatBot(nn.Module):
     def __init__(self, vocab_size, hidden_size):
         super(ChatBot, self).__init__()
