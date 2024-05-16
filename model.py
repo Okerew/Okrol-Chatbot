@@ -7,6 +7,7 @@ from train import padded_input_sequences
 
 # Load the chatbot and vocabulary
 chatbot = torch.load('model/chatbot.pt')
+# Sets the chatbot to use cpu as I developed it on macOS
 chatbot = chatbot.to('cpu')
 with open('model/vocab.json', 'r') as f:
     vocab = json.load(f)
@@ -27,9 +28,20 @@ def evaluate_expression(expression):
         return None
 
 # Function to interact with the chatbot
+"""
+    Interacts with the chatbot by processing user input, generating responses, and saving interactions to a JSON file.
+
+    Parameters:
+    - chatbot: The chatbot model to interact with.
+    - vocab: The vocabulary mapping words to integers for tokenization.
+    
+    Returns:
+    - Model response
+    - A generated file from the users interactions
+
+"""
 def interact_with_chatbot(chatbot, vocab):
     interactions = []
-
     while True:
         print("Type ?help for a list of available commands.")
         user_input = input("Input your text: ")
@@ -44,7 +56,9 @@ def interact_with_chatbot(chatbot, vocab):
         elif user_input.lower() == "?clear":
             os.system('clear')
             continue
-
+            
+        # Searches the user input for mathematical operations as they always follow the same rules 
+        # So it is not needed to train the model on them
         operation = re.search(r'\d+\s*[\+\*\-\/]\s*\d+', user_input)
         if operation:
             result = evaluate_expression(operation.group())
