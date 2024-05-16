@@ -1,5 +1,5 @@
 # Okrol-Chatbot
-A chatbot created on the base of okrol model by me
+A chatbot created on the base of <a href="https://github.com/Okerew/okrol/tree/main">okrol</a> model by me
 ![Screenshot 2024-05-13 at 20 15 57](https://github.com/Okerew/Okrol-Chatbot/assets/93822247/d3e1240c-0d7f-4114-8cce-5fefd05d0bb2)
 ______________________
 Installation
