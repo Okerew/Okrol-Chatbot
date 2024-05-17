@@ -29,7 +29,6 @@ def load_data(folder_path):
                 for entry in file_contents:
                     data.append(entry['text'])
                     labels.append(entry['response'])
-                    # Add words from both 'text' and 'response' fields to the vocabulary
                     for word in nlp(entry['text'].lower()):
                         if word.text not in vocab:
                             vocab[word.text] = next_index
@@ -41,7 +40,6 @@ def load_data(folder_path):
             else:
                 data.append(file_contents['text'])
                 labels.append(file_contents['response'])
-                # Add words from both 'text' and 'response' fields to the vocabulary
                 for word in nlp(file_contents['text'].lower()):
                     if word.text not in vocab:
                         vocab[word.text] = next_index
@@ -97,6 +95,7 @@ def pad_sequences(sequences, max_length):
             padded.append(sequence[:max_length])
     return padded
 
+
 # Define the encoder
 class EncoderRNN(nn.Module):
     def __init__(self, input_size, hidden_size, dropout_p=0.1):
@@ -104,32 +103,40 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.lstm = nn.LSTM(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, input, hidden):
         embedded = self.dropout(self.embedding(input).view(1, 1, -1))
-        output, hidden = self.lstm(embedded, hidden)
+        output, hidden = self.gru(embedded, hidden)
         return output, hidden
 
     def initHidden(self):
-        return (torch.zeros(1, 1, self.hidden_size),
-                torch.zeros(1, 1, self.hidden_size))
+        return torch.zeros(1, 1, self.hidden_size)
 
+
+"""
+        Initializes the DecoderRNN module.
+
+        Args:
+            hidden_size (int): The size of the hidden state.
+            output_size (int): The size of the output.
+            dropout_p (float, optional): The dropout probability. Defaults to 0.1.
+"""
 class DecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size, dropout_p=0.1):
         super(DecoderRNN, self).__init__()
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.lstm = nn.LSTM(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size)
         self.dropout = nn.Dropout(dropout_p)
         self.out = nn.Linear(hidden_size, output_size)
         self.softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, input, hidden):
         output = self.dropout(self.embedding(input).view(1, 1, -1))
-        output, hidden = self.lstm(output, hidden)
+        output, hidden = self.gru(output, hidden)
         output = self.out(output[0])
         output = self.softmax(output)
         return output, hidden
@@ -147,6 +154,8 @@ class DecoderRNN(nn.Module):
         Returns:
             torch.Tensor: The outputs of the model.
 """
+
+
 class ChatBot(nn.Module):
     def __init__(self, vocab_size, hidden_size):
         super(ChatBot, self).__init__()
@@ -196,7 +205,7 @@ for text in tokenized_data:
         if word not in vocab:
             vocab[word] = len(vocab)
 
-# Define SOS and EOS tokens
+
 SOS_token = vocab['<SOS>']
 EOS_token = vocab['<EOS>']
 
@@ -214,21 +223,26 @@ max_length = max([len(sequence) for sequence in input_sequences])
 padded_input_sequences = pad_sequences(input_sequences, max_length)
 padded_target_sequences = pad_sequences(target_sequences, max_length)
 
-# Save the maximum length of the input sequences
-with open('model/max_length.txt', 'w') as f:
-    f.write(str(max_length))
-
 # Instantiate the chatbot
 vocab_size = len(vocab)
-hidden_size = 256
+hidden_size = 512 
 chatbot = ChatBot(vocab_size, hidden_size)
 
 # Define a loss function and an optimizer
-criterion = nn.NLLLoss()
-optimizer = optim.SGD(chatbot.parameters(), lr=0.01)
+criterion = nn.CrossEntropyLoss()  # Use CrossEntropyLoss
+optimizer = optim.Adam(chatbot.parameters(), lr=0.001)
+
+# Add learning rate scheduler
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
+learning_rate = optimizer.param_groups[0]['lr']
 
 # Set number of epochs
 num_epochs = 10
+
+# Add dropout
+dropout_p = 0.2
+chatbot.encoder = EncoderRNN(vocab_size, hidden_size, dropout_p=dropout_p)
+chatbot.decoder = DecoderRNN(hidden_size, vocab_size, dropout_p=dropout_p)
 
 # Train the chatbot
 for epoch in range(num_epochs):
@@ -250,7 +264,10 @@ for epoch in range(num_epochs):
 
         optimizer.step()
 
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}")
+    current_lr = scheduler.get_last_lr()[0]  # Access the current learning rate
+    scheduler.step(loss)
+
+    print(f"Debug: Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}, Learning Rate: {current_lr:.6f}")
 
 # Save the chatbot
 torch.save(chatbot, 'model/chatbot.pt')
@@ -258,3 +275,4 @@ torch.save(chatbot, 'model/chatbot.pt')
 # Save the vocabulary
 with open('model/vocab.json', 'w') as f:
     json.dump(vocab, f)
+    
