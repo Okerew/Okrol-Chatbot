@@ -18,7 +18,7 @@ _____________________
 How to add data
 -------------------
 This is a blueprint for example data
-```
+``` json
 [
   {
     "text": "Who is your creator?",
