@@ -4,22 +4,26 @@ import torch.optim as optim
 import spacy
 import json
 import os
-import random
 
+# Load the spaCy model
 nlp = spacy.load('en_core_web_sm')
+
 # Function to load data from JSON files
-"""
-Loads data from JSON files in the specified folder_path, extracts text and response labels,
-builds a vocabulary with unique words from text and response fields, and returns the processed data, labels, and vocabulary.
-"""
 def load_data(folder_path):
+    """
+    Load text data and responses from JSON files in the specified folder.
+
+    Args:
+        folder_path (str): Path to the folder containing JSON files.
+
+    Returns:
+        data (list): List of text data.
+        labels (list): List of corresponding responses.
+        vocab (dict): Vocabulary mapping words to unique indices.
+    """
     data = []
     labels = []
-    vocab = {}
-    vocab['<PAD>'] = 0
-    vocab['<UNK>'] = 1
-    vocab['<SOS>'] = 2
-    vocab['<EOS>'] = 3
+    vocab = {'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
     next_index = 4
 
     for file_name in os.listdir(folder_path):
@@ -51,9 +55,17 @@ def load_data(folder_path):
 
     return data, labels, vocab
 
-
-# Function to tokenize text data
+# Tokenize text data
 def tokenize_data(data):
+    """
+    Tokenize and lemmatize the text data.
+
+    Args:
+        data (list): List of text data.
+
+    Returns:
+        tokenized_data (list): List of tokenized and lemmatized text data.
+    """
     tokenized_data = []
     for text in data:
         doc = nlp(text.lower())
@@ -61,136 +73,151 @@ def tokenize_data(data):
         tokenized_data.append(tokens)
     return tokenized_data
 
-"""
-    Convert tokenized data to sequences of integers based on a given vocabulary.
+# Convert tokenized data to sequences of integers
+def convert_to_sequences(tokenized_data, vocab):
+    """
+    Convert tokenized data into sequences of integers using the provided vocabulary.
 
-    Parameters:
-    - tokenized_data (list): List of tokenized texts to convert.
-    - vocab (dict): Vocabulary dictionary mapping words to integers.
+    Args:
+        tokenized_data (list): List of tokenized text data.
+        vocab (dict): Vocabulary mapping words to unique indices.
 
     Returns:
-    - sequences (list): List of sequences of integers corresponding to the tokenized data.
-"""
-def convert_to_sequences(tokenized_data, vocab):
+        sequences (list): List of sequences of integers.
+    """
     sequences = []
     for text in tokenized_data:
-        sequence = []
-        for word in text:
-            if word in vocab:
-                sequence.append(vocab[word])
-            elif word not in vocab:
-                vocab[word] = len(vocab)
-                sequence.append(vocab[word])
+        sequence = [vocab.get(word, vocab['<UNK>']) for word in text]
         sequences.append(sequence)
     return sequences
 
-
-# Function to pad sequences
+# Pad sequences
 def pad_sequences(sequences, max_length):
-    padded = []
-    for sequence in sequences:
-        if len(sequence) < max_length:
-            padded.append(sequence + [0] * (max_length - len(sequence)))
+    """
+    Pad or truncate sequences to a fixed length.
+
+    Args:
+        sequences (list): List of sequences of integers.
+        max_length (int): Maximum length to pad/truncate sequences.
+
+    Returns:
+        padded_sequences (torch.Tensor): Tensor of padded sequences.
+    """
+    padded_sequences = []
+    for seq in sequences:
+        if len(seq) < max_length:
+            padded_seq = seq + [0] * (max_length - len(seq))
         else:
-            padded.append(sequence[:max_length])
-    return padded
+            padded_seq = seq[:max_length]
+        padded_sequences.append(padded_seq)
+    return torch.tensor(padded_sequences, dtype=torch.long)
 
+# Define the encoder model
+class Encoder(nn.Module):
+    """
+    Transformer Encoder model.
 
-# Define the encoder
-class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, dropout_p=0.1):
-        super(EncoderRNN, self).__init__()
-        self.hidden_size = hidden_size
+    Args:
+        vocab_size (int): Size of the vocabulary.
+        d_model (int): Dimensionality of the embeddings.
+        nhead (int): Number of attention heads.
+        num_layers (int): Number of encoder layers.
+        dim_feedforward (int): Dimensionality of the feedforward layers.
+        max_seq_length (int): Maximum sequence length.
+    """
+    def __init__(self, vocab_size, d_model, nhead, num_layers, dim_feedforward, max_seq_length):
+        super(Encoder, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.positional_encoding = nn.Parameter(torch.zeros(1, max_seq_length, d_model))
+        self.encoder_layers = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layers, num_layers)
 
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(dropout_p)
-
-    def forward(self, input, hidden):
-        embedded = self.dropout(self.embedding(input).view(1, 1, -1))
-        output, hidden = self.gru(embedded, hidden)
-        return output, hidden
-
-    def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size)
-
-
-"""
-        Initializes the DecoderRNN module.
+    def forward(self, src):
+        """
+        Forward pass of the encoder model.
 
         Args:
-            hidden_size (int): The size of the hidden state.
-            output_size (int): The size of the output.
-            dropout_p (float, optional): The dropout probability. Defaults to 0.1.
-"""
-class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, dropout_p=0.1):
-        super(DecoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-
-        self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(dropout_p)
-        self.out = nn.Linear(hidden_size, output_size)
-        self.softmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, input, hidden):
-        output = self.dropout(self.embedding(input).view(1, 1, -1))
-        output, hidden = self.gru(output, hidden)
-        output = self.out(output[0])
-        output = self.softmax(output)
-        return output, hidden
-
-
-# Define the chatbot
-"""
-        Forward pass of the ChatBot model.
-
-        Parameters:
-            input_sequence (torch.Tensor): The input sequence to the model.
-            target_sequence (torch.Tensor, optional): The target sequence for training. Defaults to None.
-            teacher_forcing_ratio (float, optional): The probability of using teacher forcing. Defaults to 0.5.
+            src (torch.Tensor): Source sequences.
 
         Returns:
-            torch.Tensor: The outputs of the model.
-"""
+            torch.Tensor: Encoded source sequences.
+        """
+        src = self.embedding(src) + self.positional_encoding[:, :src.size(1)]
+        output = self.transformer_encoder(src)
+        return output
 
+# Define the decoder model
+class Decoder(nn.Module):
+    """
+    Transformer Decoder model.
 
-class ChatBot(nn.Module):
-    def __init__(self, vocab_size, hidden_size):
-        super(ChatBot, self).__init__()
-        self.hidden_size = hidden_size
+    Args:
+        vocab_size (int): Size of the vocabulary.
+        d_model (int): Dimensionality of the embeddings.
+        nhead (int): Number of attention heads.
+        num_layers (int): Number of decoder layers.
+        dim_feedforward (int): Dimensionality of the feedforward layers.
+        max_seq_length (int): Maximum sequence length.
+    """
+    def __init__(self, vocab_size, d_model, nhead, num_layers, dim_feedforward, max_seq_length):
+        super(Decoder, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.positional_encoding = nn.Parameter(torch.zeros(1, max_seq_length, d_model))
+        self.decoder_layers = nn.TransformerDecoderLayer(d_model, nhead, dim_feedforward, batch_first=True)
+        self.transformer_decoder = nn.TransformerDecoder(self.decoder_layers, num_layers)
+        self.fc_out = nn.Linear(d_model, vocab_size)
 
-        self.encoder = EncoderRNN(vocab_size, hidden_size)
-        self.decoder = DecoderRNN(hidden_size, vocab_size)
+    def forward(self, tgt, memory):
+        """
+        Forward pass of the decoder model.
 
-    def forward(self, input_sequence, target_sequence=None, teacher_forcing_ratio=0.5):
-        input_length = input_sequence.size(0)
-        if target_sequence is not None:
-            target_length = target_sequence.size(0)
-        else:
-            target_length = input_length
+        Args:
+            tgt (torch.Tensor): Target sequences.
+            memory (torch.Tensor): Encoded source sequences from the encoder.
 
-        outputs = torch.zeros(target_length, vocab_size)
+        Returns:
+            torch.Tensor: Decoded target sequences.
+        """
+        tgt = self.embedding(tgt) + self.positional_encoding[:, :tgt.size(1)]
+        output = self.transformer_decoder(tgt, memory)
+        output = self.fc_out(output)
+        return output
 
-        hidden = self.encoder.initHidden()
+# Define the full transformer model
+class TransformerChatBot(nn.Module):
+    """
+    Full Transformer-based chatbot model using separate encoder and decoder.
 
-        for ei in range(input_length):
-            output, hidden = self.encoder(input_sequence[ei], hidden)
+    Args:
+        vocab_size (int): Size of the vocabulary.
+        d_model (int): Dimensionality of the embeddings.
+        nhead (int): Number of attention heads.
+        num_encoder_layers (int): Number of encoder layers.
+        num_decoder_layers (int): Number of decoder layers.
+        dim_feedforward (int): Dimensionality of the feedforward layers.
+        max_seq_length (int): Maximum sequence length.
+    """
 
-        decoder_input = torch.tensor([[SOS_token]], dtype=torch.long)
+    def __init__(self, vocab_size, d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward,
+                 max_seq_length):
+        super(TransformerChatBot, self).__init__()
+        self.encoder = Encoder(vocab_size, d_model, nhead, num_encoder_layers, dim_feedforward, max_seq_length)
+        self.decoder = Decoder(vocab_size, d_model, nhead, num_decoder_layers, dim_feedforward, max_seq_length)
 
-        for di in range(target_length):
-            output, hidden = self.decoder(decoder_input, hidden)
-            outputs[di] = output
-            teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.argmax(1)
-            if target_sequence is not None and teacher_force:
-                decoder_input = target_sequence[di]
-            else:
-                decoder_input = top1
+    def forward(self, src, tgt):
+        """
+        Forward pass of the full transformer model.
 
-        return outputs
+        Args:
+            src (torch.Tensor): Source sequences.
+            tgt (torch.Tensor): Target sequences.
+
+        Returns:
+            torch.Tensor: Output sequences.
+        """
+        memory = self.encoder(src)
+        output = self.decoder(tgt, memory)
+        return output
 
 
 # Load and tokenize text data from JSON files
@@ -199,80 +226,70 @@ data, labels, vocab = load_data(folder_path)
 tokenized_data = tokenize_data(data)
 tokenized_labels = tokenize_data(labels)
 
-# Create a vocabulary
-for text in tokenized_data:
-    for word in text:
-        if word not in vocab:
-            vocab[word] = len(vocab)
-
-
-SOS_token = vocab['<SOS>']
-EOS_token = vocab['<EOS>']
-
 # Convert tokenized data to sequences of integers
 input_sequences = convert_to_sequences(tokenized_data, vocab)
 target_sequences = convert_to_sequences(tokenized_labels, vocab)
 
 # Add SOS and EOS tokens to the sequences
+SOS_token = vocab['<SOS>']
+EOS_token = vocab['<EOS>']
 for i in range(len(input_sequences)):
     input_sequences[i].insert(0, SOS_token)
     target_sequences[i].append(EOS_token)
 
 # Pad sequences
-max_length = max([len(sequence) for sequence in input_sequences])
+max_length = max(max(len(seq) for seq in input_sequences), max(len(seq) for seq in target_sequences))
 padded_input_sequences = pad_sequences(input_sequences, max_length)
 padded_target_sequences = pad_sequences(target_sequences, max_length)
 
-# Instantiate the chatbot
+# Save the maximum sequence length
+with open('model/max_length.txt', 'w') as f:
+    f.write(str(max_length))
+
+# Instantiate the transformer chatbot
 vocab_size = len(vocab)
-hidden_size = 512 
-chatbot = ChatBot(vocab_size, hidden_size)
+d_model = 512
+nhead = 8
+num_encoder_layers = 6
+num_decoder_layers = 6
+dim_feedforward = 2048
+chatbot = TransformerChatBot(vocab_size, d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward,
+                             max_length)
 
 # Define a loss function and an optimizer
-criterion = nn.CrossEntropyLoss()  # Use CrossEntropyLoss
+criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding token in loss computation
 optimizer = optim.Adam(chatbot.parameters(), lr=0.001)
 
-# Add learning rate scheduler
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
-learning_rate = optimizer.param_groups[0]['lr']
-
-# Set number of epochs
-num_epochs = 10
-
-# Add dropout
-dropout_p = 0.2
-chatbot.encoder = EncoderRNN(vocab_size, hidden_size, dropout_p=dropout_p)
-chatbot.decoder = DecoderRNN(hidden_size, vocab_size, dropout_p=dropout_p)
-
 # Train the chatbot
+num_epochs = 10
 for epoch in range(num_epochs):
-    for sequence_pair in zip(padded_input_sequences, padded_target_sequences):
-        input_sequence = torch.tensor(sequence_pair[0], dtype=torch.long)
-        target_sequence = torch.tensor(sequence_pair[1], dtype=torch.long)
+    total_loss = 0
+    for input_sequence, target_sequence in zip(padded_input_sequences, padded_target_sequences):
+        input_sequence = input_sequence.unsqueeze(0)  # Add batch dimension
+        target_sequence = target_sequence.unsqueeze(0)  # Add batch dimension
+        target_input = target_sequence[:, :-1]
+        target_output = target_sequence[:, 1:]
 
         optimizer.zero_grad()
-
-        output = chatbot(input_sequence, target_sequence, teacher_forcing_ratio=1.0)
-
+        output = chatbot(input_sequence, target_input)
         output_dim = output.shape[-1]
-        output = output[1:].view(-1, output_dim)
-        target = target_sequence[1:].view(-1)
 
-        loss = criterion(output, target)
+        # Flatten the output and target_output tensors
+        output = output.contiguous().view(-1, output_dim)
+        target_output = target_output.contiguous().view(-1)
 
+        loss = criterion(output, target_output)
         loss.backward()
-
         optimizer.step()
 
-    current_lr = scheduler.get_last_lr()[0]  # Access the current learning rate
-    scheduler.step(loss)
+        total_loss += loss.item()
 
-    print(f"Debug: Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}, Learning Rate: {current_lr:.6f}")
+    avg_loss = total_loss / len(padded_input_sequences)
+    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}")
 
 # Save the chatbot
-torch.save(chatbot, 'model/chatbot.pt')
+torch.save(chatbot.state_dict(), 'model/transformer_chatbot.pt')
 
 # Save the vocabulary
 with open('model/vocab.json', 'w') as f:
     json.dump(vocab, f)
-    
