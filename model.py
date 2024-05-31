@@ -3,12 +3,12 @@ import torch
 import spacy
 import json
 import re
-from train import padded_input_sequences
+from train_transformer import TransformerChatBot
 
-# Load the chatbot and vocabulary
-chatbot = torch.load('model/chatbot.pt')
-# Sets the chatbot to use cpu as I developed it on macOS
-chatbot = chatbot.to('cpu')
+# Load the spaCy model
+nlp = spacy.load('en_core_web_sm')
+
+# Load the vocabulary
 with open('model/vocab.json', 'r') as f:
     vocab = json.load(f)
 
@@ -20,6 +20,22 @@ with open('model/max_length.txt', 'r') as f:
 SOS_token = vocab['<SOS>']
 EOS_token = vocab['<EOS>']
 
+chatbot = TransformerChatBot(
+    vocab_size=len(vocab),
+    d_model=512,
+    nhead=8,
+    num_encoder_layers=6,
+    num_decoder_layers=6,
+    dim_feedforward=2048,
+    max_seq_length=max_length
+)
+try:
+    chatbot.load_state_dict(torch.load('model/transformer_chatbot.pt', map_location=torch.device('cpu')))
+except RuntimeError as e:
+    print(f"Error loading model state dict: {e}")
+chatbot = chatbot.to('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 def evaluate_expression(expression):
     try:
         result = eval(expression)
@@ -27,20 +43,26 @@ def evaluate_expression(expression):
     except Exception as e:
         return None
 
-# Function to interact with the chatbot
-"""
-    Interacts with the chatbot by processing user input, generating responses, and saving interactions to a JSON file.
 
-    Parameters:
-    - chatbot: The chatbot model to interact with.
-    - vocab: The vocabulary mapping words to integers for tokenization.
-    
-    Returns:
-    - Model response
-    - A generated file from the users interactions
+def generate_response(chatbot, input_sequence, vocab, max_length):
+    chatbot.eval()
+    input_tensor = torch.tensor([input_sequence], dtype=torch.long)
+    target_sequence = [SOS_token]
 
-"""
-def interact_with_chatbot(chatbot, vocab):
+    with torch.no_grad():
+        for _ in range(max_length):
+            target_tensor = torch.tensor([target_sequence], dtype=torch.long)
+            output = chatbot(input_tensor, target_tensor)
+            next_token = output.argmax(2)[:, -1].item()
+            target_sequence.append(next_token)
+            if next_token == EOS_token:
+                break
+
+    response_tokens = [list(vocab.keys())[list(vocab.values()).index(token)] for token in target_sequence[1:] if token in vocab.values()]
+    return response_tokens
+
+
+def interact_with_chatbot(chatbot, vocab, max_length):
     interactions = []
     while True:
         print("Type ?help for a list of available commands.")
@@ -56,9 +78,8 @@ def interact_with_chatbot(chatbot, vocab):
         elif user_input.lower() == "?clear":
             os.system('clear')
             continue
-            
-        # Searches the user input for mathematical operations as they always follow the same rules 
-        # So it is not needed to train the model on them
+
+        # Searches the user input for mathematical operations
         operation = re.search(r'\d+\s*[\+\*\-\/]\s*\d+', user_input)
         if operation:
             result = evaluate_expression(operation.group())
@@ -69,54 +90,27 @@ def interact_with_chatbot(chatbot, vocab):
         user_input = user_input.lower().strip()
 
         # Tokenize user input
-        nlp = spacy.load('en_core_web_sm')
         doc = nlp(user_input)
         tokens = [token.text for token in doc]
 
         # Convert tokens to sequence of integers
-        sequence = []
-        for word in tokens:
-            if word in vocab:
-                sequence.append(vocab[word])
-            else:
-                sequence.append(vocab['<UNK>'])
+        sequence = [vocab.get(word, vocab['<UNK>']) for word in tokens]
 
-        # Pad sequence
-        max_length = max([len(sequence) for sequence in padded_input_sequences])
+        # Add SOS token and pad sequence
+        sequence = [SOS_token] + sequence
         padded_sequence = sequence + [0] * (max_length - len(sequence))
 
-        # Convert to tensor and change data type to long
-        input_tensor = torch.tensor([padded_sequence], dtype=torch.long)
-
-        # Reshape input tensor to max_length x 1
-        input_tensor = input_tensor.squeeze(0).unsqueeze(1)
-
-        # Feed forward through the chatbot
-        with torch.no_grad():
-            output = chatbot(input_tensor)
-
-        # Get the predicted sequence of words
-        predicted_sequence = []
-        top_i = output.topk(1)[1]
-        predicted_sequence.append(top_i[0].item())
-        for i in range(1, max_length):
-            predicted_sequence.append(top_i[i].item())
-
-        # Convert the predicted sequence of integers to words
-        predicted_response = []
-        for i in predicted_sequence:
-            if i == 0:
-                break
-            predicted_response.append(list(vocab.keys())[list(vocab.values()).index(i)])
+        # Generate response
+        response_tokens = generate_response(chatbot, padded_sequence, vocab, max_length)
 
         # Record interaction
         interaction = {
             "text": user_input,
-            "response": ' '.join(predicted_response),
+            "response": ' '.join(response_tokens),
         }
         interactions.append(interaction)
 
-        print("Chatbot's response:", ' '.join(predicted_response), result)
+        print("Chatbot's response:", ' '.join(response_tokens), result)
 
     # Save interactions to a JSON file
     interaction_file = 'user_interaction.json'
@@ -125,5 +119,6 @@ def interact_with_chatbot(chatbot, vocab):
 
     print("Interactions saved to:", interaction_file)
 
+
 # Interact with the chatbot and save interactions to a JSON file
-interact_with_chatbot(chatbot, vocab)
+interact_with_chatbot(chatbot, vocab, max_length)
