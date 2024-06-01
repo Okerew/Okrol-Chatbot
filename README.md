@@ -30,3 +30,5 @@ This is a blueprint for example data
   }
 ]
 ```
+________
+#Note ai was used for docstrings/comments
